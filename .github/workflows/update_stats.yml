@@ -1,1 +1,170 @@
 
+import requests
+import json
+from datetime import datetime
+
+# Configuration
+CODEFORCES_HANDLE = "Najmul_Huda_"
+CODECHEF_HANDLE = "Najmul_Huda"
+LEETCODE_HANDLE = "user1233gG"
+
+# Fetch Codeforces solved problems
+def get_codeforces_stats(handle):
+    url = f"https://codeforces.com/api/user.status?handle={handle}"
+    try:
+        response = requests.get(url)
+        if response.status_code != 200:
+            return {"total": 0, "topics": {}}
+        
+        data = response.json()
+        if data["status"] != "OK":
+            return {"total": 0, "topics": {}}
+        
+        solved = set()
+        topics = {}
+        for submission in data["result"]:
+            if submission["verdict"] == "OK":
+                problem = submission["problem"]
+                problem_id = f"{problem['contestId']}{problem['index']}"
+                if problem_id not in solved:
+                    solved.add(problem_id)
+                    for tag in problem.get("tags", []):
+                        topics[tag] = topics.get(tag, 0) + 1
+        return {"total": len(solved), "topics": topics}
+    except Exception as e:
+        print(f"Codeforces API error: {e}")
+        return {"total": 0, "topics": {}}
+
+# Fetch CodeChef solved problems (placeholder, as API may require OAuth)
+def get_codechef_stats(handle):
+    # Note: CodeChef API requires authentication; this is a simplified example
+    # Check https://www.codechef.com/api for official endpoints
+    url = f"https://api.codechef.com/users/{handle}"
+    headers = {"Authorization": "Bearer your_codechef_token"}  # Replace with actual token
+    try:
+        response = requests.get(url, headers=headers)
+        if response.status_code != 200:
+            return {"total": 0, "topics": {}}
+        
+        data = response.json()
+        solved_count = data.get("content", {}).get("solved", 0)  # Adjust based on actual API
+        # Topics may require scraping or manual mapping
+        return {"total": solved_count, "topics": {}}
+    except Exception as e:
+        print(f"CodeChef API error: {e}")
+        return {"total": 0, "topics": {}}
+
+# Fetch LeetCode solved problems
+def get_leetcode_stats(handle):
+    url = "https://leetcode.com/graphql"
+    query = """
+    query userProblemsSolved($username: String!) {
+        matchedUser(username: $username) {
+            submitStats: submitStatsGlobal {
+                acSubmissionNum {
+                    difficulty
+                    count
+                }
+            }
+            tagProblemCounts {
+                advanced { tagName count }
+                intermediate { tagName count }
+                fundamental { tagName count }
+            }
+        }
+    }
+    """
+    variables = {"username": handle}
+    try:
+        response = requests.post(url, json={"query": query, "variables": variables})
+        if response.status_code != 200:
+            return {"total": 0, "topics": {}}
+        
+        data = response.json().get("data", {}).get("matchedUser", {})
+        if not data:
+            return {"total": 0, "topics": {}}
+        
+        total = sum(item["count"] for item in data.get("submitStats", {}).get("acSubmissionNum", []))
+        topics = {}
+        for level in ["advanced", "intermediate", "fundamental"]:
+            for tag in data.get("tagProblemCounts", {}).get(level, []):
+                topics[tag["tagName"]] = topics.get(tag["tagName"], 0) + tag["count"]
+        return {"total": total, "topics": topics}
+    except Exception as e:
+        print(f"LeetCode API error: {e}")
+        return {"total": 0, "topics": {}}
+
+# Generate README content
+def generate_readme(cf_stats, cc_stats, lc_stats):
+    readme = "# Competitive Programming Stats\n\n"
+    readme += f"**Last Updated**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+    
+    # Total solved problems
+    readme += "## Total Solved Problems\n"
+    readme += f"- **Codeforces** ([Najmul_Huda_](https://codeforces.com/profile/Najmul_Huda_)): {cf_stats['total']} problems\n"
+    readme += f"- **CodeChef** ([Najmul_Huda](https://www.codechef.com/users/Najmul_Huda)): {cc_stats['total']} problems\n"
+    readme += f"- **LeetCode** ([user1233gG](https://leetcode.com/user1233gG)): {lc_stats['total']} problems\n\n"
+    
+    # Topic-wise distribution
+    readme += "## Topic-wise Distribution\n"
+    all_topics = set(cf_stats["topics"].keys()) | set(cc_stats["topics"].keys()) | set(lc_stats["topics"].keys())
+    for topic in sorted(all_topics):
+        cf_count = cf_stats["topics"].get(topic, 0)
+        cc_count = cc_stats["topics"].get(topic, 0)
+        lc_count = lc_stats["topics"].get(topic, 0)
+        if cf_count or cc_count or lc_count:
+            readme += f"- **{topic}**: Codeforces ({cf_count}), CodeChef ({cc_count}), LeetCode ({lc_count})\n"
+    
+    # Chart.js for visualization
+    labels = sorted(all_topics)
+    cf_data = [cf_stats["topics"].get(t, 0) for t in labels]
+    cc_data = [cc_stats["topics"].get(t, 0) for t in labels]
+    lc_data = [lc_stats["topics"].get(t, 0) for t in labels]
+    chartjs = {
+        "type": "bar",
+        "data": {
+            "labels": labels,
+            "datasets": [
+                {"label": "Codeforces", "data": cf_data, "backgroundColor": "#FF6384"},
+                {"label": "CodeChef", "data": cc_data, "backgroundColor": "#36A2EB"},
+                {"label": "LeetCode", "data": lc_data, "backgroundColor": "#FFCE56"}
+            ]
+        },
+        "options": {
+            "title": {"display": True, "text": "Topic-wise Problem Solving Distribution"},
+            "scales": {"xAxes": [{"stacked": True}], "yAxes": [{"stacked": True}]}
+        }
+    }
+    readme += "\n## Visualization\n"
+    readme += '<canvas id="statsChart"></canvas>\n'
+    readme += '<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>\n'
+    readme += '<script>\n'
+    readme += f'const ctx = document.getElementById("statsChart").getContext("2d");\n'
+    readme += f'new Chart(ctx, {json.dumps(chartjs, indent=2)});\n'
+    readme += '</script>\n'
+    
+    return readme
+
+# Main execution
+def main():
+    cf_stats = get_codeforces_stats(CODEFORCES_HANDLE)
+    cc_stats = get_codechef_stats(CODECHEF_HANDLE)
+    lc_stats = get_leetcode_stats(LEETCODE_HANDLE)
+    
+    readme_content = generate_readme(cf_stats, cc_stats, lc_stats)
+    
+    # Save to README.md
+    with open("README.md", "w") as f:
+        f.write(readme_content)
+    
+    # Save raw data for reference
+    with open("stats.json", "w") as f:
+        json.dump({
+            "codeforces": cf_stats,
+            "codechef": cc_stats,
+            "leetcode": lc_stats,
+            "last_updated": datetime.now().isoformat()
+        }, f, indent=2)
+
+if __name__ == "__main__":
+    main()
